@@ -151,11 +151,13 @@ class MainWindow(QWidget):
         self.media_player.stop()
         self.video_widget.hide()
         pixmap = QPixmap(path)
-        self.image_label.setPixmap(pixmap.scaled(
+        pixmap = pixmap.scaled(
             self.image_label.size(),
-            aspectMode=Qt.AspectRatioMode.KeepAspectRatio,
-            transformMode=Qt.TransformationMode.SmoothTransformation
-        ))
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+
+        self.image_label.setPixmap(pixmap)
         self.image_label.show()
 
     def display_video(self, path):
