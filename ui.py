@@ -20,7 +20,7 @@ class MainWindow(QWidget):
 
         self.file_path = None
 
-        # Shadow wrapper
+        # shadow wrapper
         shadow_wrapper = QVBoxLayout(self)
         shadow_wrapper.setContentsMargins(20, 20, 20, 20)
 
@@ -195,10 +195,11 @@ class MainWindow(QWidget):
         self.file_info.setText(info)
         cap.release()
 
+    # start ur magic from here
     def scan_file(self):
         self.scan_btn.setEnabled(False)
         self.upload_btn.setEnabled(False)
-        # Dummy model response
+        # dummy model response
         self.scan_output.setText("Suspicious Activity: Possible shoplifting\nConfidence: 92.7%")
         self.scan_btn.setEnabled(True)
         self.upload_btn.setEnabled(True)
@@ -214,7 +215,6 @@ class MainWindow(QWidget):
         x = self.resize_grip.parent().width() - self.resize_grip.width() - margin
         y = self.resize_grip.parent().height() - self.resize_grip.height() - margin
         self.resize_grip.move(x, y)
-
 
 
 class ResizeGrip(QWidget):
@@ -239,7 +239,6 @@ class ResizeGrip(QWidget):
             diff = current_pos - self._start_pos
             new_width = max(self._start_size.width() + diff.x(), self.minimumWidth())
             new_height = max(self._start_size.height() + diff.y(), self.minimumHeight())
-            # Resize the top-level window, not the container!
             self.window().resize(new_width, new_height)
             event.accept()
 
