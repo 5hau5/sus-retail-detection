@@ -51,7 +51,6 @@ class MainWindow(QWidget):
         self.resize(current_size)  # back to original
 
 
-
     def container_resize_event(self, event):
         margin = 5
         x = self.container.width() - self.resize_grip.width() - margin
@@ -88,8 +87,6 @@ class MainWindow(QWidget):
         self.image_label.hide()
 
         self.media_player = QMediaPlayer()
-        self.audio_output = QAudioOutput()
-        self.media_player.setAudioOutput(self.audio_output)
         self.media_player.setVideoOutput(self.video_widget)
 
         self.media_frame = QVBoxLayout()
