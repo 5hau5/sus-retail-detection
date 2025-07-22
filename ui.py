@@ -87,6 +87,7 @@ class MainWindow(QWidget):
         self.image_label.hide()
 
         self.media_player = QMediaPlayer()
+        self.media_player.mediaStatusChanged.connect(self.handle_media_status)
         self.media_player.setVideoOutput(self.video_widget)
 
         self.media_frame = QVBoxLayout()
@@ -201,6 +202,11 @@ class MainWindow(QWidget):
         self.scan_output.setText("Suspicious Activity: Possible shoplifting\nConfidence: 92.7%")
         self.scan_btn.setEnabled(True)
         self.upload_btn.setEnabled(True)
+
+    def handle_media_status(self, status):
+        if status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.media_player.setPosition(0) 
+            self.media_player.play()     
 
 
     def update_resize_grip_pos(self):
