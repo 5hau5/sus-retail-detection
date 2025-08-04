@@ -10,6 +10,8 @@ from PyQt6.QtWidgets import (
 
 from titlebar import TitleBar
 
+import model
+
 class MainWindow(QWidget):
     def __init__(self):
         super().__init__()
@@ -200,7 +202,9 @@ class MainWindow(QWidget):
         self.scan_btn.setEnabled(False)
         self.upload_btn.setEnabled(False)
         # dummy model response
-        self.scan_output.setText("Suspicious Activity: Possible shoplifting\nConfidence: 92.7%")
+        result = model.placeholder_function(self.file_path)
+        self.scan_output.setText(result)
+        
         self.scan_btn.setEnabled(True)
         self.upload_btn.setEnabled(True)
 
