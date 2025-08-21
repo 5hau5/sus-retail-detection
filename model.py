@@ -44,23 +44,47 @@ def _find_yolo_weights() -> str:
 
 
 def _find_behavior_assets():
-    """Try RandomForest first, else linear rule JSON; else None."""
-    rf_path   = WTS / "rf_behavior.pkl"
-    scaler    = WTS / "behavior_scaler.pkl"
-    feats_json= WTS / "behavior_features.json"
-    # linear rules (any one is fine)
+    """
+    Discover behavior-head assets with new names first, then legacy:
+      - classifier:  clf.pkl  (fallback: rf_behavior.pkl)
+      - scaler:      scaler.pkl  (fallback: behavior_scaler.pkl)
+      - feat names:  behavior_features.json  (fallback: meta.json keys)
+      - rule json:   cma_rule.json / de_rule.json / pso_rule.json / rule.json / meta.json
+    """
+    # preferred new names
+    clf_path_new = WTS / "clf.pkl"
+    scaler_new   = WTS / "scaler.pkl"
+
+    # legacy names
+    clf_path_old = WTS / "rf_behavior.pkl"
+    scaler_old   = WTS / "behavior_scaler.pkl"
+
+    # pick first existing
+    clf_path = clf_path_new if clf_path_new.exists() else (clf_path_old if clf_path_old.exists() else None)
+    scaler   = scaler_new   if scaler_new.exists()   else (scaler_old   if scaler_old.exists()   else None)
+
+    # feature name sources
+    feats_json = WTS / "behavior_features.json"
+    feats_json = feats_json if feats_json.exists() else None
+    meta_json  = WTS / "meta.json"
+    meta_json  = meta_json if meta_json.exists() else None
+
+    # linear rules (ordered)
     rule_json = None
-    for name in ("cma_rule.json", "de_rule.json", "pso_rule.json", "rule.json"):
+    for name in ("cma_rule.json", "de_rule.json", "pso_rule.json", "rule.json", "meta.json"):
         p = WTS / name
         if p.exists():
             rule_json = p
             break
+
     return {
-        "rf": rf_path if rf_path.exists() else None,
-        "scaler": scaler if scaler.exists() else None,
-        "featnames": feats_json if feats_json.exists() else None,
-        "rule": rule_json
+        "clf": clf_path,         # None if missing
+        "scaler": scaler,        # None if missing
+        "featnames": feats_json, # may be None (we’ll also try meta.json inside loader)
+        "meta": meta_json,       # optional sidecar (features or rule)
+        "rule": rule_json        # may be meta.json if it contains rule-like keys
     }
+
 
 
 # ---------------------------
@@ -83,34 +107,56 @@ def _sigmoid(x: float) -> float:
 
 
 def _load_behavior():
-    """Decide backend: RF (if files exist) else RULE (if json) else FALLBACK."""
+    """Decide backend: CLF (if files exist) → RULE (if json) → FALLBACK."""
     global _BEHAV
     if _BEHAV is not None:
         return _BEHAV
 
-    found = _find_behavior_assets()
+    found   = _find_behavior_assets()
     backend = "fallback"
-    obj = {"backend": backend}
+    obj     = {"backend": backend}
 
-    # 1) RandomForest head (preferred)
-    if found["rf"] and joblib is not None:
+    # 1) Classifier head (preferred)
+    if found["clf"] and joblib is not None:
         try:
-            rf = joblib.load(found["rf"])
+            clf = joblib.load(found["clf"])
             scaler = joblib.load(found["scaler"]) if found["scaler"] else None
-            featnames = json.loads(found["featnames"].read_text()) if found["featnames"] else None
-            obj = {"backend": "rf", "rf": rf, "scaler": scaler, "featnames": featnames}
+
+            # feature names: explicit file → meta.json → None
+            featnames = None
+            if found["featnames"]:
+                try:
+                    featnames = json.loads(found["featnames"].read_text())
+                except Exception:
+                    featnames = None
+            if featnames is None and found["meta"]:
+                try:
+                    meta = json.loads(found["meta"].read_text())
+                    # accept several common keys
+                    for key in ("features", "featnames", "columns"):
+                        if isinstance(meta, dict) and key in meta and isinstance(meta[key], (list, tuple)):
+                            featnames = list(meta[key])
+                            break
+                except Exception:
+                    pass
+
+            obj = {"backend": "rf", "rf": clf, "scaler": scaler, "featnames": featnames}
             _BEHAV = obj
             return obj
         except Exception:
             pass
 
-    # 2) Linear rule from JSON
+    # 2) Linear rule from JSON (including meta.json acting as rule)
     if found["rule"]:
         try:
-            rule = json.loads(found["rule"].read_text())
-            # Expect {"w": {"feat": weight, ...}, "b": bias}
-            if isinstance(rule, dict) and "w" in rule and "b" in rule:
-                obj = {"backend": "rule", "rule": rule}
+            rd = json.loads(found["rule"].read_text())
+            # allow either top-level {w,b} or nested {"rule": {w,b}}
+            if isinstance(rd, dict) and ("w" in rd and "b" in rd):
+                obj = {"backend": "rule", "rule": rd}
+                _BEHAV = obj
+                return obj
+            if isinstance(rd, dict) and "rule" in rd and isinstance(rd["rule"], dict) and ("w" in rd["rule"] and "b" in rd["rule"]):
+                obj = {"backend": "rule", "rule": rd["rule"]}
                 _BEHAV = obj
                 return obj
         except Exception:
@@ -119,7 +165,6 @@ def _load_behavior():
     # 3) Fallback heuristic (no ext assets)
     _BEHAV = obj
     return obj
-
 
 # ---------------------------
 # Geometry helpers
@@ -221,18 +266,32 @@ def _score_feature_vector(feats: dict) -> tuple[float,str]:
     if backend == "rf":
         rf = beh["rf"]; scaler = beh["scaler"]; featnames = beh["featnames"]
         if featnames is None:
-            # fallback to alphabetical order if names missing
             featnames = sorted(list(feats.keys()))
         x = np.array([[feats.get(k, 0.0) for k in featnames]], dtype=float)
-        if scaler is not None:
-            x = scaler.transform(x)
+
+        # If rf is a Pipeline, assume it handles its own scaling; otherwise use external scaler if present.
+        is_pipeline = hasattr(rf, "steps") and isinstance(getattr(rf, "steps"), list)
+        if (scaler is not None) and (not is_pipeline):
+            try:
+                x = scaler.transform(x)
+            except Exception:
+                # if scaler fails, continue unscaled rather than crashing
+                pass
+
         try:
-            proba = rf.predict_proba(x)[0,1]
+            # classifiers & pipelines that expose predict_proba
+            proba = rf.predict_proba(x)[0, 1]
         except Exception:
-            # some classifiers use decision_function:
-            s = float(rf.decision_function(x).ravel()[0])
-            proba = _sigmoid(s)
+            try:
+                # linear models / SVMs with decision_function
+                s = float(rf.decision_function(x).ravel()[0])
+                proba = _sigmoid(s)
+            except Exception:
+                # last resort: predict (0/1) and turn into a "prob"
+                y = int(rf.predict(x)[0])
+                proba = float(y)
         return float(proba), "rf"
+
 
     if backend == "rule":
         rule = beh["rule"]

@@ -1,0 +1,21 @@
+{
+  "model": "LogReg",
+  "threshold": 0.4723471397657631,
+  "threshold_source": "CMA-ES",
+  "features": [
+    "n_person",
+    "n_item",
+    "areaP_mean",
+    "areaI_mean",
+    "areaP_sum",
+    "areaI_sum",
+    "min_center_dist",
+    "mean_center_dist",
+    "max_iou",
+    "sum_iou"
+  ],
+  "labels": {
+    "negative": 0,
+    "shoplifting": 1
+  }
+}
