@@ -1,16 +1,21 @@
 import os
-from PyQt6.QtCore import Qt, QUrl, QPoint, QTimer
-from PyQt6.QtGui import QPixmap, QPainter, QColor
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput
+from PyQt6.QtCore import Qt, QUrl, QPoint, QTimer, QThread, pyqtSignal
+from PyQt6.QtGui import QPixmap, QPainter, QColor, QImage
+from PyQt6.QtMultimedia import QMediaPlayer
 from PyQt6.QtMultimediaWidgets import QVideoWidget
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QFileDialog,
     QTextEdit, QSizePolicy, QGraphicsDropShadowEffect, QFrame
 )
+from pathlib import Path
+from stream_worker import InferenceThread
+
+import cv2, numpy as np
 
 from titlebar import TitleBar
 
 import model
+
 
 class MainWindow(QWidget):
     def __init__(self):
@@ -117,10 +122,10 @@ class MainWindow(QWidget):
         self.upload_btn.clicked.connect(self.select_file)
         button_layout.addWidget(self.upload_btn)
 
-        self.scan_btn = QPushButton("Scan")
-        self.scan_btn.setEnabled(False)
-        self.scan_btn.clicked.connect(self.scan_file)
-        button_layout.addWidget(self.scan_btn)
+        self.start_btn = QPushButton("Start")
+        self.start_btn.setEnabled(False)
+        self.start_btn.clicked.connect(self.toggle_start)
+        button_layout.addWidget(self.start_btn)
 
         content.addLayout(button_layout)
 
@@ -133,7 +138,7 @@ class MainWindow(QWidget):
             return
 
         self.file_path = path
-        self.scan_btn.setEnabled(True)
+        self.start_btn.setEnabled(True)
         self.scan_output.clear()
         self.file_info.clear()
 
@@ -146,6 +151,66 @@ class MainWindow(QWidget):
             self.show_file_info_video(path)
         else:
             self.file_info.setText("Unsupported file format")
+
+
+    def toggle_start(self):
+        running = getattr(self, "_running", False)
+        if running:
+            self.stop_realtime()
+        else:
+            self.start_realtime()
+
+    def start_realtime(self):
+        if not self.file_path:
+            return
+        # switch preview to QLabel (so we can draw our own frames)
+        self.media_player.stop()
+        self.video_widget.hide()
+        self.image_label.show()
+
+        self.upload_btn.setEnabled(False)
+        self.start_btn.setText("Stop")
+        self._running = True
+
+        # spin up worker
+        self.worker = InferenceThread(self.file_path, stride=1, ema_alpha=0.20, conf=0.25, parent=self)
+        self.worker.frame_ready.connect(self.on_frame_ready)
+        self.worker.hud_text.connect(self.on_hud_text)
+        self.worker.finished.connect(self.on_infer_finished)
+        self.worker.start()
+
+    def stop_realtime(self):
+        if hasattr(self, "worker") and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.wait()
+        self._running = False
+        self.start_btn.setText("Start")
+        self.upload_btn.setEnabled(True)
+
+    def on_frame_ready(self, qimg: QImage):
+        # scale to fit label
+        pix = QPixmap.fromImage(qimg).scaled(
+            self.image_label.size(),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation
+        )
+        self.image_label.setPixmap(pix)
+
+    def on_hud_text(self, text: str):
+        # show rolling risk in the right-hand box
+        self.scan_output.setPlainText(text)
+
+    def on_infer_finished(self, res: dict):
+        self._running = False
+        self.start_btn.setText("Start")
+        self.upload_btn.setEnabled(True)
+        # show final verdict + where the saved video is
+        if "error" in res:
+            self.scan_output.setPlainText(res["error"])
+            return
+        summary = f"{res['text']}\nSaved: {res['output_video']}\nBackend: {res.get('backend','?')}"
+        self.scan_output.setPlainText(summary)
+
 
     def display_image(self, path):
         self.media_player.stop()
@@ -197,16 +262,16 @@ class MainWindow(QWidget):
         self.file_info.setText(info)
         cap.release()
 
-    # start ur magic from here
-    def scan_file(self):
-        self.scan_btn.setEnabled(False)
-        self.upload_btn.setEnabled(False)
-        # dummy model response
-        result = model.placeholder_function(self.file_path)
-        self.scan_output.setText(result)
+    # # start ur magic from here
+    # def scan_file(self):
+    #     self.scan_btn.setEnabled(False)
+    #     self.upload_btn.setEnabled(False)
+    #     # dummy model response
+    #     result = model.placeholder_function(self.file_path)
+    #     self.scan_output.setText(result)
         
-        self.scan_btn.setEnabled(True)
-        self.upload_btn.setEnabled(True)
+    #     self.scan_btn.setEnabled(True)
+    #     self.upload_btn.setEnabled(True)
 
     def handle_media_status(self, status):
         if status == QMediaPlayer.MediaStatus.EndOfMedia:

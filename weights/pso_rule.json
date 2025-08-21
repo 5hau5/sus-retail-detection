@@ -1,0 +1,1 @@
+{"w": [-2.0, 2.0, 2.0, -0.6659183841754817, -1.988467020727251, -0.81846326030407, -1.8211135331116455, -0.06928958732473861, -1.2302481264293086, 0.518949924103195], "tau": -1.0, "features": ["n_person", "n_item", "areaP_mean", "areaI_mean", "areaP_sum", "areaI_sum", "min_center_dist", "mean_center_dist", "max_iou", "sum_iou"]}
